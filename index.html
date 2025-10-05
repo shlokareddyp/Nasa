@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>flaresync — the sun’s heartbeat network</title>
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <label><input id="audioChk" type="checkbox" checked> audio</label>
+    <label><input id="partChk" type="checkbox" checked> particles</label>
+    <label><input id="hcChk"   type="checkbox"> high contrast</label>
+    <label><input id="lpChk"   type="checkbox"> low power</label>
+    <button id="muteBtn" class="chip">mute</button>
+    <label class="row">vol <input id="vol" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+    <label class="row">mode
+      <select id="modeSel">
+        <option value="calm">calm</option>
+        <option value="active" selected>active</option>
+        <option value="storm">storm</option>
+      </select>
+    </label>
+
+    <div style="margin-left:auto; display:flex; gap:8px;">
+      <button id="btnOverview" class="chip">overview</button>
+      <button id="btnLearn" class="chip">learn</button>
+      <button id="btnExplore" class="chip">explore</button>
+      <button id="btnStory" class="chip">story</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- LEFT: dashboard -->
+    <aside class="panel">
+      <h3>space weather (now) <span id="watchBadge" class="badge hidden">on watch</span></h3>
+
+      <div class="kv"><span>speed</span><strong id="speed">—</strong><em>km/s</em></div>
+      <div class="kv"><span>Bz</span><strong id="bz">—</strong><em>nT</em></div>
+      <div class="kv"><span>density</span><strong id="dens">—</strong><em>cm⁻³</em></div>
+      <div class="kv"><span>Kp</span><strong id="kp">—</strong></div>
+      <div class="kv"><span>beat</span><strong id="beat">—</strong></div>
+      <div class="mini" id="updated">updated —</div>
+
+      <div class="card">
+        <h4>impact snapshot</h4>
+        <div id="impactText">—</div>
+      </div>
+
+      <div class="card">
+        <h4>storm clock (now · 30m · 60m)</h4>
+        <div class="grid3">
+          <div class="kv"><span>now</span><strong id="riskNow">—</strong></div>
+          <div class="kv"><span>+30m</span><strong id="risk30">—</strong></div>
+          <div class="kv"><span>+60m</span><strong id="risk60">—</strong></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>forecast (nowcasting)</h4>
+        <div class="grid2">
+          <div class="kv"><span>Bz trend</span><strong id="fcBz">—</strong></div>
+          <div class="kv"><span>storm risk</span><strong id="fcRisk">—</strong></div>
+          <div class="kv"><span>aurora (here)</span><strong id="fcAurora">—</strong></div>
+          <div class="kv"><span>pulse (bpm)</span><strong id="fcBpm">—</strong></div>
+        </div>
+        <div class="mini">method: transparent linear regression on last RTSW samples (on-device).</div>
+        <label class="row" style="margin-top:6px">
+          <input id="notifToggle" type="checkbox"> notify on rising storm risk
+        </label>
+      </div>
+
+      <div class="card" id="sandboxCard">
+        <h4>satellite drag sandbox</h4>
+        <div class="row" style="flex-wrap:wrap;gap:10px">
+          <label class="row">orbit
+            <select id="orbitSel">
+              <option value="400">LEO 400 km (ISS)</option>
+              <option value="550" selected>LEO 550 km</option>
+              <option value="700">LEO 700 km</option>
+              <option value="1200">MEO 1200 km</option>
+              <option value="35786">GEO 35786 km</option>
+            </select>
+          </label>
+          <label class="row">mass
+            <input id="satMass" type="number" value="150" min="1" step="1" style="width:80px"> kg
+          </label>
+          <label class="row">area
+            <input id="satArea" type="number" value="0.20" step="0.01" style="width:80px"> m²
+          </label>
+          <label class="row">Cd
+            <input id="satCd" type="number" value="2.2" step="0.1" style="width:60px">
+          </label>
+        </div>
+        <div class="grid2" style="margin-top:6px">
+          <div class="kv"><span>drag index</span><strong id="dragIdx">—</strong></div>
+          <div class="kv"><span>decay (m/day)</span><strong id="dragDecay">—</strong></div>
+          <div class="kv"><span>risk (qual.)</span><strong id="dragRisk">—</strong></div>
+          <div class="kv"><span>notes</span><strong id="dragNotes">—</strong></div>
+        </div>
+        <div class="mini">heuristic uses wind speed + southward Bz + Kp + density, scaled by altitude & ballistic coefficient.</div>
+      </div>
+
+      <button id="openQuiz" class="chip wfull" style="margin-top:10px">take the aurora quiz</button>
+      <div class="mini">data: NOAA SWPC RTSW & OVATION · NASA SPDF OMNI · NASA DONKI · open source (Apache-2.0)</div>
+    </aside>
+
+    <!-- RIGHT: scene -->
+    <main class="sceneWrap">
+      <canvas id="scene"></canvas>
+
+      <!-- right floating dock -->
+      <div id="activityDock" class="dock">
+        <div class="dockCard">
+          <div class="dockTitle">view</div>
+          <div class="row">
+            <button id="viewOrbits" class="chip small">orbits</button>
+            <button id="viewAurora" class="chip small">aurora</button>
+            <button id="viewSpectro" class="chip small">spectro</button>
+          </div>
+        </div>
+
+        <div class="dockCard">
+          <div class="dockTitle">aurora meter</div>
+          <div class="meter"><div id="auroraBar" class="meterBar" style="width:14%"></div></div>
+          <div class="mini" id="auroraNote">southward Bz raises the bar</div>
+        </div>
+
+        <div class="dockCard">
+          <div class="dockTitle">activity feed</div>
+          <div id="dockFeed" class="feed"></div>
+        </div>
+      </div>
+
+      <!-- bottom mini-HUD -->
+      <div id="miniHud" class="miniHud">
+        <div class="hudCard">
+          <div class="hudLabel">heartbeat</div>
+          <div class="hudValue" id="hudBpm">—</div>
+        </div>
+        <div class="hudCard">
+          <div class="hudLabel">storm risk</div>
+          <div class="hudValue" id="hudRisk">—</div>
+        </div>
+        <div class="hudCard">
+          <div class="hudLabel">aurora (here)</div>
+          <div class="hudValue" id="hudAurora">—</div>
+        </div>
+        <div class="hudCard">
+          <div class="hudLabel">Kp</div>
+          <div class="hudValue" id="hudKp">—</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- quiz overlay -->
+  <button id="quizBtn" class="chip quizFab">quiz</button>
+  <div id="quizOverlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheetHead">
+        <h3>aurora quest</h3>
+        <button id="quizClose" class="chip">close</button>
+      </div>
+      <div id="quizBody"></div>
+    </div>
+  </div>
+
+  <!-- learn overlay -->
+  <div id="learnOverlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheetHead">
+        <h3>learn · the sun → earth</h3>
+        <button id="learnClose" class="chip">close</button>
+      </div>
+      <div id="learnBody">
+        <div class="card">
+          <h4>problem → solution</h4>
+          <div class="mini">
+            <b>Problem:</b> space-weather sites drown people in numbers.<br/>
+            <b>Our approach:</b> we map data to <i>light + sound</i> and a few clear impact metrics (risk, aurora here, satellite drag), all explained and auditable.
+          </div>
+        </div>
+        <div class="card">
+          <h4>key terms</h4>
+          <ul class="mini">
+            <li><b>Solar-wind speed</b> — km/s flow from the Sun; faster wind often means more energy input.</li>
+            <li><b>IMF Bz</b> — z-component of the interplanetary magnetic field near Earth. <b>Negative (southward)</b> couples strongly → storms.</li>
+            <li><b>Density</b> — proton concentration (cm⁻³); shapes heating + drag.</li>
+            <li><b>Kp</b> — planetary storm index 0–9 (higher → stronger geomagnetic activity).</li>
+            <li><b>OVATION</b> — NOAA aurora probability model.</li>
+            <li><b>DONKI</b> — NASA’s space-weather notifications (flares, CMEs, SEPs).</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>how flaresync maps data → senses</h4>
+          <div class="mini">speed → tempo · density → bass pitch · Bz → color/filter · Kp/OVATION → risk/aurora.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- explore overlay -->
+  <div id="exploreOverlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheetHead">
+        <h3>explore · live data</h3>
+        <button id="exploreClose" class="chip">close</button>
+      </div>
+
+      <div class="card">
+        <h4>Kp trend (last 24–48 points)</h4>
+        <canvas id="kpChart" height="120" style="background:#0d1830;border:1px solid #1f2b4b;border-radius:10px;"></canvas>
+      </div>
+
+      <div class="card">
+        <h4>DONKI storm watch (NASA)</h4>
+        <div id="donkiBox" class="mini">loading…</div>
+      </div>
+
+      <div class="card">
+        <h4>scrub replay (last hour)</h4>
+        <div class="row" style="gap:10px;align-items:center">
+          <input id="replayRange" type="range" min="0" max="60" value="0">
+          <button id="replayLive" class="chip">back to live</button>
+          <div class="mini" id="replayLabel">live</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>raw snapshot</h4>
+        <div class="mini" id="rawBox">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- story overlay -->
+  <div id="storyOverlay" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheetHead">
+        <h3>story · eyes of earthlings</h3>
+        <div class="row" style="gap:6px;margin-left:auto">
+          <button id="storyRead" class="chip">read-aloud</button>
+          <button id="storyRestart" class="chip">restart</button>
+          <button id="storyClose" class="chip">close</button>
+        </div>
+      </div>
+      <div id="storyBody" class="storyBody"></div>
+    </div>
+  </div>
+
+  <small id="audioStatus" class="audioStatus">audio: waiting for click</small>
+
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
